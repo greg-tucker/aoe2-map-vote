@@ -7,7 +7,7 @@ if(!token||!clientId) throw new Error("DISCORD_TOKEN and DISCORD_CLIENT_ID are r
 const sessions=new Map<string,VoteSession>();
 const command=new SlashCommandBuilder().setName("mapvote").setDescription("Start an AoE II: DE map-ban vote").addIntegerOption(o=>o.setName("players").setDescription("Number of players banning maps").setMinValue(2).setMaxValue(8).setRequired(true));
 function controls(s:VoteSession,disabled=false){
-  const select=new StringSelectMenuBuilder().setCustomId(`ban:${s.id}`).setPlaceholder("Choose your one map ban").setDisabled(disabled).addOptions(s.candidates.map(m=>({label:m.name,value:m.id,emoji:"❌"})));
+  const select=new StringSelectMenuBuilder().setCustomId(`ban:${s.id}`).setPlaceholder("Choose your one map ban").setDisabled(disabled).addOptions(s.candidates.map(m=>({label:m.name,description:m.type,value:m.id,emoji:"❌"})));
   const finish=new ButtonBuilder().setCustomId(`finish:${s.id}`).setLabel("Finish early (host)").setStyle(ButtonStyle.Secondary).setDisabled(disabled);
   return [new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(select),new ActionRowBuilder<ButtonBuilder>().addComponents(finish)];
 }
@@ -21,7 +21,7 @@ async function imageAttachment(map:MapDefinition){
 }
 async function previewBundle(selected:MapDefinition[]){
   const loaded=await Promise.all(selected.map(async map=>{try{return {map,file:await imageAttachment(map)}}catch(error){console.warn(`Could not load preview for ${map.name}:`,error);return {map}}}));
-  return {embeds:loaded.map(({map,file})=>{const embed=new EmbedBuilder().setTitle(map.name).setColor(0x8b6f47);return file?embed.setImage(`attachment://${file.name}`):embed}),files:loaded.flatMap(({file})=>file?[file]:[])};
+  return {embeds:loaded.map(({map,file})=>{const embed=new EmbedBuilder().setTitle(map.name).setDescription(`**Map type:** ${map.type}`).setColor(0x8b6f47);return file?embed.setImage(`attachment://${file.name}`):embed}),files:loaded.flatMap(({file})=>file?[file]:[])};
 }
 const rest=new REST({version:"10"}).setToken(token);const guildId=process.env.DISCORD_GUILD_ID;await rest.put(guildId?Routes.applicationGuildCommands(clientId,guildId):Routes.applicationCommands(clientId),{body:[command.toJSON()]});
 const client=new Client({intents:[GatewayIntentBits.Guilds]});client.once(Events.ClientReady,c=>console.log(`Ready as ${c.user.tag}`));
@@ -30,7 +30,7 @@ client.on(Events.InteractionCreate,async interaction=>{try{
     if(!interaction.inGuild()||!interaction.channelId)return void interaction.reply({content:"Use this command in a server channel.",ephemeral:true});
     const key=`${interaction.guildId}:${interaction.channelId}`,existing=sessions.get(key);if(existing&&!existing.winner)return void interaction.reply({content:"There is already an active map vote in this channel.",ephemeral:true});
     const s=createSession(interaction.user.id,interaction.options.getInteger("players",true),maps);sessions.set(key,s);
-    await interaction.deferReply();const first=await previewBundle(s.candidates.slice(0,9));await interaction.editReply({embeds:[status(s),...first.embeds],files:first.files,components:controls(s)});if(s.candidates.length>9){const rest=await previewBundle(s.candidates.slice(9));await interaction.followUp(rest)}return;
+    await interaction.deferReply();await interaction.editReply({embeds:[status(s)],components:controls(s)});const first=await previewBundle(s.candidates.slice(0,10));await interaction.followUp(first);if(s.candidates.length>10){const rest=await previewBundle(s.candidates.slice(10));await interaction.followUp(rest)}return;
   }
   if(!interaction.isStringSelectMenu()&&!interaction.isButton())return;const [action,id]=interaction.customId.split(":");const key=interaction.guildId&&interaction.channelId?`${interaction.guildId}:${interaction.channelId}`:"",s=sessions.get(key);
   if(!s||s.id!==id)return void interaction.reply({content:"This vote is no longer active.",ephemeral:true});
