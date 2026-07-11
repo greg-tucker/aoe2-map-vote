@@ -16,8 +16,14 @@ function status(s:VoteSession){const banned=new Set(s.votes.values());return new
 const imageCache=new Map<string,Buffer>();
 async function imageAttachment(map:MapDefinition){
   const name=`${map.id}.png`;let data=imageCache.get(map.id);
-  if(!data){const response=await fetch(map.imageUrl);if(!response.ok)throw new Error(`Image download returned ${response.status}`);data=Buffer.from(await response.arrayBuffer());imageCache.set(map.id,data)}
+  if(!data){const url=map.imageUrl??await findWikiPreview(map);const response=await fetch(url);if(!response.ok)throw new Error(`Image download returned ${response.status}`);data=Buffer.from(await response.arrayBuffer());imageCache.set(map.id,data)}
   return new AttachmentBuilder(data,{name});
+}
+async function findWikiPreview(map:MapDefinition){
+  const titles=encodeURIComponent(`${map.name}|${map.name} (map)`);const api=`https://ageofempires.fandom.com/api.php?action=query&generator=images&titles=${titles}&gimlimit=50&prop=imageinfo&iiprop=url&format=json`;
+  const response=await fetch(api);if(!response.ok)throw new Error(`Preview lookup returned ${response.status}`);const json=await response.json() as {query?:{pages?:Record<string,{title:string,imageinfo?:Array<{url:string}>}>}};const images=Object.values(json.query?.pages??{});
+  const key=map.name.toLowerCase().replace(/[^a-z0-9]/g,"");const ranked=images.map(image=>{const title=image.title.toLowerCase(),normalized=title.replace(/[^a-z0-9]/g,"");let score=normalized.includes(key)?50:0;if(title.includes("composite"))score+=100;if(title.includes("preview"))score+=40;if(title.includes(" map"))score+=10;if(/aoe3|aom|icon|resource|disambig/.test(title))score-=100;return {url:image.imageinfo?.[0]?.url,score}}).filter((item):item is {url:string,score:number}=>Boolean(item.url)).sort((a,b)=>b.score-a.score);
+  if(!ranked[0]||ranked[0].score<40)throw new Error("No suitable preview found");return ranked[0].url;
 }
 async function previewBundle(selected:MapDefinition[]){
   const loaded=await Promise.all(selected.map(async map=>{try{return {map,file:await imageAttachment(map)}}catch(error){console.warn(`Could not load preview for ${map.name}:`,error);return {map}}}));
